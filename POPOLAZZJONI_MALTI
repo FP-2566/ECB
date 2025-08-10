@@ -1,0 +1,73 @@
+import pandas as pd
+import requests
+
+# Estrazione dati
+def fetch_wb_data(country='MLT', symbol=True):
+    if symbol is True:
+        SS = ['♂','♀']
+    else:
+        SS = ['Male','Female']	
+    print(f"++ ADOPTED {SS}")
+    indicators = {"SP.POP.TOTL.MA.IN": SS[0],"SP.POP.TOTL.FE.IN": SS[1]}	
+    df_list = []
+    for indicator, label in indicators.items():
+        url = f"http://api.worldbank.org/v2/country/{country}/indicator/{indicator}?format=json&per_page=100"
+        data = requests.get(url).json()[1]
+        temp_df = pd.DataFrame([(d['date'], float(d['value'])) for d in data], columns=['Year', label])
+        df_list.append(temp_df)
+    return pd.merge(df_list[0], df_list[1], on='Year'), SS
+
+population, SS = fetch_wb_data(country, indicators)
+print(population.head())
+
+
+import matplotlib.pyplot as plt
+import numpy as np
+import statsmodels.api as sm
+
+# Funzione che calcola Test Z e Regressione OLS
+def analyze_population(data=population, SS=SS):
+    # Calcolare il rapporto maschi/femmine per ogni anno
+    S0 = SS[1]  # Colonna delle femmine (Secondo elemento in SS)
+    S1 = SS[0]  # Colonna dei maschi (Primo elemento in SS)
+    # Verifica dei nomi delle colonne
+    if S0 not in data.columns or S1 not in data.columns:
+        raise ValueError(f"Le colonne {S0} e/o {S1} non sono presenti nel dataframe.")
+    data['Ratio'] = data[S1] / (data[S1] + data[S0])
+    # --- TEST Z ---
+    # Sommare maschi e femmine totali
+    total_male = data[S1].sum()
+    total_female = data[S0].sum()
+    # Proporzione totale maschi
+    p_male = total_male / (total_male + total_female)
+    # Esegui test Z per la proporzione
+    count = np.array([total_male])  # Numeratore (maschi)
+    nobs = np.array([total_male + total_female])  # Totale osservazioni (maschi + femmine)
+    z_stat, p_value = proportions_ztest(count, nobs, value=0.5)
+    # Risultato Test Z
+    print(f"Test Z: p-value = {p_value[0]:.4f}")  # Prendiamo il primo elemento dell'array p_value
+    # --- REGRESSIONE LINEARE OLS ---
+    # Regressione lineare per il rapporto nel tempo
+    X = sm.add_constant(data['Year'])  # Aggiungi una costante per il termine intercetta
+    y = data['Ratio']
+    # Modello di regressione
+    model = sm.OLS(y, X).fit()
+    # Visualizzazione dei risultati della regressione
+    print(f"\nRisultati della regressione OLS:")
+    print(model.summary())
+    # --- GRAFICO ---
+    plt.figure(figsize=(10, 6))
+    plt.plot(data['Year'], data['Ratio'], marker='o', color='b', label='Rapporto Maschi/Femmine')
+    # Aggiungi la linea di regressione OLS
+    y_pred = model.predict(X)  # Previsioni della regressione
+    plt.plot(data['Year'], y_pred, color='r', label='Regressione OLS', linestyle='--')  # Linea di regressione
+    plt.title('Andamento del Rapporto Maschi/Femmine nel Tempo')
+    plt.xlabel('Anno')
+    plt.ylabel('Rapporto Maschi/Femmine')
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+    return z_stat, p_value, model.summary()
+
+# Chiamata della funzione per analizzare il dataset
+z_stat, p_value, ols_summary = analyze_population()
