@@ -17,57 +17,58 @@ def fetch_wb_data(country='MLT', symbol=True):
         df_list.append(temp_df)
     return pd.merge(df_list[0], df_list[1], on='Year'), SS
 
-population, SS = fetch_wb_data()
+population, SS = fetch_wb_data('MLT',False)
 print(population.head())
 
 
 import matplotlib.pyplot as plt
 import numpy as np
 import statsmodels.api as sm
+from statsmodels.stats.proportion import proportions_ztest
 
-# Funzione che calcola Test Z e Regressione OLS
-def analyze_population(data=population, SS=SS):
-    # Calcolare il rapporto maschi/femmine per ogni anno
-    S0 = SS[1]  # Colonna delle femmine (Secondo elemento in SS)
-    S1 = SS[0]  # Colonna dei maschi (Primo elemento in SS)
-    # Verifica dei nomi delle colonne
+def analyze_population(data, SS):
+    # Check column names
+    S0 = SS[1]  # Females
+    S1 = SS[0]  # Males
     if S0 not in data.columns or S1 not in data.columns:
-        raise ValueError(f"Le colonne {S0} e/o {S1} non sono presenti nel dataframe.")
+        raise ValueError(f"Columns {S0} or {S1} not found in DataFrame.")
+    # Ensure Year is numeric
+    if not np.issubdtype(data['Year'].dtype, np.number):
+        data['Year'] = pd.to_numeric(data['Year'], errors='coerce')  # Convert to numeric, invalid -> NaN
+    # Calculate Ratio (Males / (Males + Females))
     data['Ratio'] = data[S1] / (data[S1] + data[S0])
-    # --- TEST Z ---
-    # Sommare maschi e femmine totali
+    
+    # Drop rows with NaN (if any conversion failed)
+    data = data.dropna(subset=['Year', 'Ratio'])
+    # --- Z-TEST ---
     total_male = data[S1].sum()
     total_female = data[S0].sum()
-    # Proporzione totale maschi
-    p_male = total_male / (total_male + total_female)
-    # Esegui test Z per la proporzione
-    count = np.array([total_male])  # Numeratore (maschi)
-    nobs = np.array([total_male + total_female])  # Totale osservazioni (maschi + femmine)
+    count = np.array([total_male])
+    nobs = np.array([total_male + total_female])
     z_stat, p_value = proportions_ztest(count, nobs, value=0.5)
-    # Risultato Test Z
-    print(f"Test Z: p-value = {p_value[0]:.4f}")  # Prendiamo il primo elemento dell'array p_value
-    # --- REGRESSIONE LINEARE OLS ---
-    # Regressione lineare per il rapporto nel tempo
-    X = sm.add_constant(data['Year'])  # Aggiungi una costante per il termine intercetta
+    print(f"Test Z: p-value = {float(p_value):.4f}")
+    # --- OLS REGRESSION ---
+    X = sm.add_constant(data['Year'])  # Add intercept
     y = data['Ratio']
-    # Modello di regressione
+    
+    # Ensure X and y are numeric (convert if needed)
+    X = np.asarray(X, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    
     model = sm.OLS(y, X).fit()
-    # Visualizzazione dei risultati della regressione
-    print(f"\nRisultati della regressione OLS:")
+    print("\nRisultati della regressione OLS:")
     print(model.summary())
-    # --- GRAFICO ---
+    # --- PLOT ---
     plt.figure(figsize=(10, 6))
-    plt.plot(data['Year'], data['Ratio'], marker='o', color='b', label='Rapporto Maschi/Femmine')
-    # Aggiungi la linea di regressione OLS
-    y_pred = model.predict(X)  # Previsioni della regressione
-    plt.plot(data['Year'], y_pred, color='r', label='Regressione OLS', linestyle='--')  # Linea di regressione
+    plt.plot(data['Year'], data['Ratio'], 'bo', label='Rapporto Maschi/Femmine')
+    plt.plot(data['Year'], model.predict(X), 'r--', label='Regressione OLS')
     plt.title('Andamento del Rapporto Maschi/Femmine nel Tempo')
     plt.xlabel('Anno')
     plt.ylabel('Rapporto Maschi/Femmine')
     plt.grid(True)
     plt.legend()
     plt.show()
-    return z_stat, p_value, model.summary()
+    return z_stat, float(p_value), model.summary()
 
-# Chiamata della funzione per analizzare il dataset
-z_stat, p_value, ols_summary = analyze_population()
+# Esempio di chiamata (assicurati che `population` e `SS` siano definiti)
+z_stat, p_value, ols_summary = analyze_population(population, SS)
