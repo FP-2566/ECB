@@ -17,7 +17,7 @@ def fetch_wb_data(country='MLT', symbol=True):
         df_list.append(temp_df)
     return pd.merge(df_list[0], df_list[1], on='Year'), SS
 
-population, SS = fetch_wb_data(country, indicators)
+population, SS = fetch_wb_data()
 print(population.head())
 
 
