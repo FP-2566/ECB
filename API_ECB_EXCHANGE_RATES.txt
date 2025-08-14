@@ -1,36 +1,93 @@
 import pandas as pd
+import requests
+from io import StringIO
 
-def get_ecb_daily_usd_eur(start=None, end=None):
+def get_all_ecb_exchange_rates(base_currency='EUR', start=None, end=None, frequency='D'):
     """
-    Scarica il tasso di cambio giornaliero USD/EUR dalla BCE
-    e restituisce un DataFrame con colonne ['DATE', 'RATE'].
+    Scarica TUTTE le valute disponibili dalla BCE con TUTTI i metadati
     
-    start, end: stringhe nel formato 'YYYY-MM-DD'
+    Parametri:
+    ----------
+    base_currency : str (default 'EUR')
+        Valuta di riferimento (es. 'EUR', 'USD')
+    start : str (optional)
+        Data iniziale 'YYYY-MM-DD'
+    end : str (optional)
+        Data finale 'YYYY-MM-DD'
+    frequency : str (default 'D')
+        'D' giornaliero, 'M' mensile
+    
+    Restituisce:
+    ------------
+    DataFrame con tutte le serie storiche e metadati completi
     """
     base_url = "https://data-api.ecb.europa.eu/service/data/EXR"
-    series_id = "D.USD.EUR.SP00.A"  # D = giornaliero
-    params = f"/{series_id}?format=csvdata"
-    if start:
-        params += f"&startPeriod={start}"
-    if end:
-        params += f"&endPeriod={end}"
-    url = base_url + params
-    # Legge il CSV ignorando i commenti
-    df = pd.read_csv(url, comment='#')
-    # Pulizia colonne
-    df.columns = [c.strip() for c in df.columns]
-    # Selezioniamo solo la data e il valore
-    if 'TIME_PERIOD' in df.columns and 'OBS_VALUE' in df.columns:
-        df = df[['TIME_PERIOD', 'OBS_VALUE']].rename(
-            columns={'TIME_PERIOD': 'DATE', 'OBS_VALUE': 'RATE'}
-        )
-    # Converte date e tassi in formati corretti
-    df['DATE'] = pd.to_datetime(df['DATE'])
-    df['RATE'] = pd.to_numeric(df['RATE'], errors='coerce')
-    # Ordina per data crescente
-    df = df.sort_values('DATE').reset_index(drop=True)
-    return df
+    series_id = f"{frequency}..{base_currency}.SP00.A"  # Tutte le valute
+    
+    # Costruisce la query
+    params = {
+        'format': 'csvdata',
+        'startPeriod': start,
+        'endPeriod': end
+    }
+    # Rimuove i parametri None
+    params = {k: v for k, v in params.items() if v is not None}
+    
+    try:
+        # Effettua la richiesta
+        response = requests.get(f"{base_url}/{series_id}", params=params)
+        response.raise_for_status()
+        
+        # Legge il CSV
+        df = pd.read_csv(StringIO(response.text), comment='#')
+        df.columns = [c.strip() for c in df.columns]
+        
+        # Standardizza i nomi delle colonne
+        col_mapping = {
+            'TIME_PERIOD': 'date',
+            'CURRENCY': 'target_currency',
+            'OBS_VALUE': 'exchange_rate',
+            'FREQ': 'frequency',
+            'CURRENCY_DENOM': 'base_currency',
+            'EXR_TYPE': 'rate_type',
+            'EXR_SUFFIX': 'suffix',
+            'OBS_STATUS': 'status',
+            'OBS_CONF': 'confidence',
+            'OBS_PRE_BREAK': 'pre_break',
+            'OBS_COM': 'comments'
+        }
+        
+        # Rinomina le colonne disponibili
+        df = df.rename(columns={k: v for k, v in col_mapping.items() if k in df.columns})
+        
+        # Conversione tipi
+        if 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'])
+        if 'exchange_rate' in df.columns:
+            df['exchange_rate'] = pd.to_numeric(df['exchange_rate'], errors='coerce')
+        
+        # Aggiunge timestamp di scaricamento
+        df['download_timestamp'] = pd.Timestamp.now()
+        
+        return df.sort_values(['target_currency', 'date']).reset_index(drop=True)
+    
+    except Exception as e:
+        print(f"Errore durante il download: {str(e)}")
+        return pd.DataFrame()
 
-# Esempio d'uso
-df_rates = get_ecb_daily_usd_eur(start="2020-01-01", end="2025-07-31")
-print(df_rates.head())
+# Esempio d'uso completo
+if __name__ == "__main__":
+    # Scarica tutti i dati disponibili (può richiedere tempo)
+    all_rates = get_all_ecb_exchange_rates(
+        base_currency='EUR',
+        start='2000-01-01',  # Opzionale: rimuovere per tutta la storia
+        frequency='D'         # 'M' per dati mensili
+    )
+    
+    if not all_rates.empty:
+        print(f"Scaricati {len(all_rates)} records")
+        print("Valute disponibili:", all_rates['target_currency'].unique())
+        print("\nEsempio dei dati:")
+        print(all_rates.head(10))
+    else:
+        print("Nessun dato scaricato")
