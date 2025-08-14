@@ -1,0 +1,36 @@
+import pandas as pd
+
+def get_ecb_daily_usd_eur(start=None, end=None):
+    """
+    Scarica il tasso di cambio giornaliero USD/EUR dalla BCE
+    e restituisce un DataFrame con colonne ['DATE', 'RATE'].
+    
+    start, end: stringhe nel formato 'YYYY-MM-DD'
+    """
+    base_url = "https://data-api.ecb.europa.eu/service/data/EXR"
+    series_id = "D.USD.EUR.SP00.A"  # D = giornaliero
+    params = f"/{series_id}?format=csvdata"
+    if start:
+        params += f"&startPeriod={start}"
+    if end:
+        params += f"&endPeriod={end}"
+    url = base_url + params
+    # Legge il CSV ignorando i commenti
+    df = pd.read_csv(url, comment='#')
+    # Pulizia colonne
+    df.columns = [c.strip() for c in df.columns]
+    # Selezioniamo solo la data e il valore
+    if 'TIME_PERIOD' in df.columns and 'OBS_VALUE' in df.columns:
+        df = df[['TIME_PERIOD', 'OBS_VALUE']].rename(
+            columns={'TIME_PERIOD': 'DATE', 'OBS_VALUE': 'RATE'}
+        )
+    # Converte date e tassi in formati corretti
+    df['DATE'] = pd.to_datetime(df['DATE'])
+    df['RATE'] = pd.to_numeric(df['RATE'], errors='coerce')
+    # Ordina per data crescente
+    df = df.sort_values('DATE').reset_index(drop=True)
+    return df
+
+# Esempio d'uso
+df_rates = get_ecb_daily_usd_eur(start="2020-01-01", end="2025-07-31")
+print(df_rates.head())
