@@ -4,45 +4,45 @@ from io import StringIO
 
 def get_all_ecb_exchange_rates(base_currency='EUR', start=None, end=None, frequency='D'):
     """
-    Scarica TUTTE le valute disponibili dalla BCE con TUTTI i metadati
+    Download ALL available currencies from the ECB with FULL metadata.
     
-    Parametri:
+    Parameters:
     ----------
     base_currency : str (default 'EUR')
-        Valuta di riferimento (es. 'EUR', 'USD')
+        Reference currency (e.g., 'EUR', 'USD')
     start : str (optional)
-        Data iniziale 'YYYY-MM-DD'
+        Start date 'YYYY-MM-DD'
     end : str (optional)
-        Data finale 'YYYY-MM-DD'
+        End date 'YYYY-MM-DD'
     frequency : str (default 'D')
-        'D' giornaliero, 'M' mensile
+        'D' = daily, 'M' = monthly
     
-    Restituisce:
-    ------------
-    DataFrame con tutte le serie storiche e metadati completi
+    Returns:
+    --------
+    DataFrame containing all historical series and complete metadata
     """
     base_url = "https://data-api.ecb.europa.eu/service/data/EXR"
-    series_id = f"{frequency}..{base_currency}.SP00.A"  # Tutte le valute
+    series_id = f"{frequency}..{base_currency}.SP00.A"  # All currencies
     
-    # Costruisce la query
+    # Build the query
     params = {
         'format': 'csvdata',
         'startPeriod': start,
         'endPeriod': end
     }
-    # Rimuove i parametri None
+    # Remove None parameters
     params = {k: v for k, v in params.items() if v is not None}
     
     try:
-        # Effettua la richiesta
+        # Send the request
         response = requests.get(f"{base_url}/{series_id}", params=params)
         response.raise_for_status()
         
-        # Legge il CSV
+        # Read CSV content
         df = pd.read_csv(StringIO(response.text), comment='#')
         df.columns = [c.strip() for c in df.columns]
         
-        # Standardizza i nomi delle colonne
+        # Standardize column names
         col_mapping = {
             'TIME_PERIOD': 'date',
             'CURRENCY': 'target_currency',
@@ -57,37 +57,37 @@ def get_all_ecb_exchange_rates(base_currency='EUR', start=None, end=None, freque
             'OBS_COM': 'comments'
         }
         
-        # Rinomina le colonne disponibili
+        # Rename columns if present
         df = df.rename(columns={k: v for k, v in col_mapping.items() if k in df.columns})
         
-        # Conversione tipi
+        # Type conversions
         if 'date' in df.columns:
             df['date'] = pd.to_datetime(df['date'])
         if 'exchange_rate' in df.columns:
             df['exchange_rate'] = pd.to_numeric(df['exchange_rate'], errors='coerce')
         
-        # Aggiunge timestamp di scaricamento
+        # Add download timestamp
         df['download_timestamp'] = pd.Timestamp.now()
         
         return df.sort_values(['target_currency', 'date']).reset_index(drop=True)
     
     except Exception as e:
-        print(f"Errore durante il download: {str(e)}")
+        print(f"Error during download: {str(e)}")
         return pd.DataFrame()
 
-# Esempio d'uso completo
+# Full usage example
 if __name__ == "__main__":
-    # Scarica tutti i dati disponibili (può richiedere tempo)
+    # Download all available data (can take time)
     all_rates = get_all_ecb_exchange_rates(
         base_currency='EUR',
-        start='2000-01-01',  # Opzionale: rimuovere per tutta la storia
-        frequency='D'         # 'M' per dati mensili
+        start='2000-01-01',  # Optional: remove to get full history
+        frequency='D'         # 'M' for monthly data
     )
     
     if not all_rates.empty:
-        print(f"Scaricati {len(all_rates)} records")
-        print("Valute disponibili:", all_rates['target_currency'].unique())
-        print("\nEsempio dei dati:")
+        print(f"Downloaded {len(all_rates)} records")
+        print("Available currencies:", all_rates['target_currency'].unique())
+        print("\nData sample:")
         print(all_rates.head(10))
     else:
-        print("Nessun dato scaricato")
+        print("No data downloaded")
